@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+build/
+dist/
+*.egg-info/
+
+# Node
+node_modules/
+/web/package-lock.json
+/.vite/
+
+# Environment
+.env
+
+# FastAPI
+*.pyc
+__pycache__/
+venv/
+.env
+
+# Docker
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Handoff
+docs/Handoff/*.md

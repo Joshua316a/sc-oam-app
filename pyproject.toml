@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "sc-oam-app"
+version = "0.1.0"
+description = "Org Asset Manager API & Web UI — FastAPI + React"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.27.0",
+    "python-dotenv>=1.0.0",
+]
+dev-dependencies = [
+    "pytest>=7.4.0",
+    "ruff>=0.4.0",
+    "black>=23.0.0",
+]
+
+[project.scripts]
+sc-oam-app = "app:main"
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "W"]
+select-plus = ["SIM"]
+exclude = ["web/"]
+preview = true
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.pytest.ini_options]
+markers = [
+    "api: API endpoint tests",
+    "web: Web/React component tests",
+]
+testpaths = ["tests/"]
+pythonpath = ["."]
