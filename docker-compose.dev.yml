@@ -1,0 +1,120 @@
+# ─── Development Profile ──────────────────────────────────────────────────
+# Profile: dev
+# Purpose: Local development with edit-on-the-fly capability
+# Features: Source code mounts, auto-reload, SQLite database
+# Container prefix: sc-oam-dev- (enables simultaneous QA/dev runs)
+# Ports: set via SERVICE_BASE_PORT and SERVICE_FRONTEND_PORT env vars
+#   from run.sh (default: 8001/3001 for dev)
+
+# ═════════════════════════════════════════════════════════════════════════
+# 🐍 Backend Service (Core OAMv2 Agent)
+# ════════════════════════════════════════════════════════════════════════
+
+services:
+  backend:
+    # Environment from .env file (APP_NAME, SECRET_KEY, etc.) 
+    # plus profile-specific overrides
+    env_file: .env
+    restart: unless-stopped
+    build: .
+    entrypoint: /app/dev_entrypoint.sh
+    command: ["--host", "0.0.0.0", "--port", "${SERVICE_BASE_PORT}", "--reload", "--reload-dir", "/app"]
+    
+    # Port mapping: hosts ${SERVICE_BASE_PORT}:${SERVICE_BASE_PORT} → 8001:8001
+    ports:
+      - "${SERVICE_BASE_PORT}:${SERVICE_BASE_PORT}"
+    
+    volumes:
+      - ./:/app:ro
+      - ./db:/host_db
+    
+    # Single environment block - ALL entries as KEY=VALUE strings
+    environment:
+      - OAM_AGENT=core
+      - OAM_ROLE=primary
+      - DEPLOY_ENV=dev
+      - DATABASE_URL="sqlite:////host_db/database.db"
+      - VITE_API_BASE="http://backend:${SERVICE_BASE_PORT}/api"
+    
+    networks:
+      - oam-net
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${SERVICE_BASE_PORT}/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ════════════════════════════════════════════════════════════════════════
+  # 🌐 Frontend Service (Web UI Agent)
+  # ════════════════════════════════════════════════════════════════════════
+
+  frontend:
+    env_file: .env
+    image: node:20-alpine
+    working_dir: /app
+    
+    volumes:
+      - ./web:/app:ro
+      - node_modules:/app/node_modules:cached
+    
+    # Environment block - ALL entries as KEY=VALUE strings
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPOLL=true
+      - OAM_AGENT=web
+      - OAM_ROLE=frontend
+      - DEPLOY_ENV=dev
+      - VITE_API_BASE="http://backend:${SERVICE_BASE_PORT}/api"
+      - VITE_PORT="${SERVICE_FRONTEND_PORT}"
+    
+    ports:
+      - "${SERVICE_FRONTEND_PORT}:${SERVICE_FRONTEND_PORT}"
+    
+    command: sh -c "npm install && npm run dev"
+    
+    networks:
+      - oam-net
+
+  # ════════════════════════════════════════════════════════════════════════
+  # 🎮 Game Extraction Agent (Optional in dev)
+  # ════════════════════════════════════════════════════════════════════════
+
+  extraction-agent:
+    env_file: .env
+    build: .
+    entrypoint: /app/game_entrypoint.sh
+    command: ["--cooldown", "3600", "--monitor"]
+    
+    volumes:
+      - ./:/app:ro
+      - ./game_data:/game/data
+    
+    ports: []
+    
+    # Environment block - all entries as KEY=VALUE strings
+    environment:
+      - OAM_AGENT=gameagnt
+      - OAM_ROLE=extraction
+      - DEPLOY_ENV=dev
+      - DATABASE_URL="sqlite:////host_db/database.db"
+      - PIPELINE_COOLDOWN="3600"
+    
+    networks:
+      - oam-net
+    
+    depends_on:
+      backend:
+        condition: service_healthy
+
+# ═════════════════════════════════════════════════════════════════════════
+# 📋 Development-Specific Notes
+# ═════════════════════════════════════════════════════════════════════════
+
+# Port configuration for dev profile:
+#   - Backend:  ${SERVICE_BASE_PORT}  (set by run.sh, default: 8001 for dev)
+#   - Frontend: ${SERVICE_FRONTEND_PORT}  (set by run.sh, default: 3001 for dev)
+#   - run.sh defaults:  SERVICE_BASE_PORT=8001, SERVICE_FRONTEND_PORT=3001
+#   - Override with:  ./run.sh dev core --base-port 9000 --frontend-port 3003
+#   - Vite HMR and uvicorn --reload both use these ports

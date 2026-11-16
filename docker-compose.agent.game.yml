@@ -1,0 +1,122 @@
+# ─── Agent: Game Extraction Agent ──────────────────────────────────────────
+# Agent type: gameagnt
+# Role: Extraction pipeline runner
+# Description: Remote agent PC with game client installed
+# Responsibilities: Monitor game environments, run extraction pipeline
+#                 with 1-hour cooldown after updates
+
+# ═════════════════════════════════════════════════════════════════════════
+# 📝 Per-Agent Configuration
+# ════════════════════════════════════════════════════════════════════════
+
+# Agent identification:
+#   - OAM_AGENT=gameagnt
+#   - OAM_ROLE=extraction
+#   - DEPLOY_ENV=dev|qa (prod not typically for extraction agents)
+
+# ════════════════════════════════════════════════════════════════════════
+# 🎮 Game Extraction Service
+# ════════════════════════════════════════════════════════════════════════
+
+services:
+  extraction-agent:
+    # Agent-specific environment
+    <<: *common-env
+    
+    # Development entrypoint with extraction pipeline
+    entrypoint: /app/game_entrypoint.sh
+    
+    # Extraction pipeline command with 1-hour cooldown
+    command: ["--cooldown", "3600", "--monitor", "--database-url", "sqlite:////host_db/database.db"]
+    
+    # Source code mount for pipeline updates
+    volumes:
+      - ./:/app:ro  # ← Host source code, read-only (updates pushed to pipeline)
+      - ./game_data:/game/data  # Game-specific archives/data
+    
+    # Not exposed to host unless needed for API triggers
+    ports: []
+    
+    # Extraction agent identification
+    environment:
+      - OAM_AGENT=gameagnt
+      - OAM_ROLE=extraction
+      - DEPLOY_ENV=${DEPLOY_ENV:-dev}
+      - DATABASE_URL: "sqlite:////host_db/database.db"
+      - PIPELINE_COOLDOWN: "3600"  # 1 hour in seconds
+      - GAME_ENV: "production"  # or "sandbox" for testing
+    
+    # Network - connects to main oam-net to communicate with core backend
+    networks:
+      - oam-net
+    
+    # Dependencies - waits for core backend to be healthy
+    depends_on:
+      backend:
+        condition: service_healthy
+    
+    # Extraction-specific health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sqlite3; conn=sqlite3.connect('/host_db/database.db'); print('DB OK')"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+# ════════════════════════════════════════════════════════════════════════
+# 📊 Game Agent - Profile Integration
+# ════════════════════════════════════════════════════════════════════════
+
+# How the game extraction agent works with each profile:
+
+# **dev profile** (docker-compose.dev.yml):
+#   - Service: extraction-agent
+#   - Entry: /app/game_entrypoint.sh
+#   - Command: --cooldown 3600 --monitor --database-url "sqlite:////host_db/database.db"
+#   - Volumes: ./:/app:ro + ./game_data:/game/data
+#   - DB: SQLite host mount (./db/database.db)
+#   - Cooldown: ✅ 1-hour enforced
+#   - Monitoring: ✅ Monitors game environment status
+#   - Container: sc-oam-dev-extraction-agent-1
+#   - Network: communicates with sc-oam-dev-backend-1 via oam-net
+
+# **qa profile** (docker-compose.qa.yml):
+#   - Service: extraction-agent (optional - may not run in pure QA)
+#   - Entry: /app/game_entrypoint.sh
+#   - Command: same as dev but DEPLOY_ENV=qa
+#   - Volumes: no source mounts (built pipeline binary or script)
+#   - DB: PostgreSQL (different database)
+#   - Cooldown: Still enforced (pipeline behavior)
+#   - Container: sc-oam-qa-extraction-agent-1 (if started)
+
+# **Key Extraction Pipeline Behavior:**
+# 1. Agent monitors game environment status
+# 2. When new update detected, starts 1-hour cooldown timer
+# 3. After cooldown, triggers extraction pipeline
+# 4. Pipeline reads p4k archives, classifies items
+# 5. Populates reference database (SQLite or PostgreSQL)
+# 6. Packages user configuration + game logs
+# 7. Makes data available to core backend via API
+
+# Usage:
+#   # Start core OAMv2 first
+#   ./run.sh dev core
+#   
+#   # In another terminal, start extraction agent
+#   ./run.sh dev gameagnt
+#   
+#   # The extraction agent will:
+#   # - Connect to core backend on oam-net
+#   # - Monitor game environment
+#   # - Run extraction after 1-hour cooldown
+#   # - Build local database for each environment
+#   # - Package user config + game logs
+
+# Distributed Deployment Example:
+#   # Host machine (development):
+#   ./run.sh dev core          # OAMv2 backend on :8000
+#   
+#   # Separate game PC:
+#   # (SSH to game machine and run:)
+#   ./run.sh dev gameagnt       # Extraction agent with game client
+#   
+#   # Both on same oam-net, extraction agent coordinates with core backend

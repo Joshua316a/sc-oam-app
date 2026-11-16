@@ -4,7 +4,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "sc-oam-app"
-version = "0.1.0"
+version = "0.1.0"  # <- Should match sc-oam-app/_version.py __version__
 description = "Org Asset Manager API & Web UI — FastAPI + React"
 requires-python = ">=3.10"
 dependencies = [

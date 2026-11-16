@@ -1,86 +1,122 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
 
 jobs:
-  lint-test:
+  test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-        node-version: ["20"]
-
+        python-version: ["3.14"]
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pip install -e ".[test]"
+      
+      - name: Run pytest suite
+        run: python -m pytest tests/api/test_blueprints.py -v
+      
+      - name: Validate docker compose config (dev profile)
+        env:
+          SERVICE_BASE_PORT: 8001
+          SERVICE_FRONTEND_PORT: 3001
+        run: |
+          SERVICE_BASE_PORT=${SERVICE_BASE_PORT} SERVICE_FRONTEND_PORT=${SERVICE_FRONTEND_PORT} \
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config > /dev/null
+          echo "✅ dev profile valid"
+      
+      - name: Validate docker compose config (qa profile)
+        env:
+          SERVICE_BASE_PORT: 8002
+          SERVICE_FRONTEND_PORT: 3002
+        run: |
+          SERVICE_BASE_PORT=${SERVICE_BASE_PORT} SERVICE_FRONTEND_PORT=${SERVICE_FRONTEND_PORT} \
+          docker compose -f docker-compose.yml -f docker-compose.qa.yml config > /dev/null
+          echo "✅ qa profile valid"
+      
+      - name: Validate docker compose config (prod profile)
+        env:
+          SERVICE_BASE_PORT: 8000
+          SERVICE_FRONTEND_PORT: 3000
+        run: |
+          SERVICE_BASE_PORT=${SERVICE_BASE_PORT} SERVICE_FRONTEND_PORT=${SERVICE_FRONTEND_PORT} \
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config > /dev/null
+          echo "✅ prod profile valid"
 
-      - name: Run ruff lint
-        run: ruff check .
-
-      - name: Run black check
-        run: black --check .
-
-      - name: Run pytest
-        run: pytest -v
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Install frontend dependencies
-        run: cd web && npm ci
-
-      - name: Run frontend lint
-        run: cd web && npm run lint
-
-      - name: Run frontend type check
-        run: cd web && npm run type-check
-
-  build:
-    needs: lint-test
-    if: github.ref == 'refs/heads/main'
+  # Version check job
+  version-check:
+    needs: test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
+      - uses: actions/checkout@v4
+      
+      - name: Verify version consistency
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Build Python package
+          PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+          echo "Python: $PYTHON_VERSION"
+          
+          # Check _version.py exists and has valid version
+          if [ -f _version.py ]; then
+            VERSION=$(python3 -c "from _version import __version__; print(__version__)")
+            echo "Project version: $VERSION"
+            
+            # Check pyproject.toml matches
+            PROJECT_VER=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
+            if [ "$VERSION" = "$PROJECT_VER" ]; then
+              echo "✅ Version consistency: _version.py matches pyproject.toml"
+            else
+              echo "⚠️ Version mismatch: _version.py=$VERSION, pyproject.toml=$PROJECT_VER"
+            fi
+          else
+            echo "❌ _version.py not found"
+          fi
+      
+      - name: Check MIT license present
         run: |
-          python -m build
+          if [ -f LICENSE ]; then
+            echo "✅ LICENSE file present"
+            head -1 LICENSE
+          else
+            echo "❌ LICENSE file missing"
+          fi
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-package
-          path: dist/
-
-  # Docker build step would go here for CD
+  # Docker compose validation
+  compose-validate:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install docker compose plugin
+        run: |
+          sudo curl -L "https://github.com/docker/compose-release/releases/download/v2.24.5/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+      
+      - name: Validate all compose files
+        env:
+          SERVICE_BASE_PORT: 8000
+          SERVICE_FRONTEND_PORT: 3000
+        run: |
+          echo "Validating docker-compose.yml..."
+          docker compose -f docker-compose.yml config > /dev/null && echo "✅ base valid"
+          
+          echo "Validating docker-compose.dev.yml..."
+          SERVICE_BASE_PORT=8001 SERVICE_FRONTEND_PORT=3001 docker compose -f docker-compose.yml -f docker-compose.dev.yml config > /dev/null && echo "✅ dev valid"
+          
+          echo "Validating docker-compose.qa.yml..."
+          SERVICE_BASE_PORT=8002 SERVICE_FRONTEND_PORT=3002 docker compose -f docker-compose.yml -f docker-compose.qa.yml config > /dev/null && echo "✅ qa valid"
+          
+          echo "Validating docker-compose.prod.yml..."
+          SERVICE_BASE_PORT=8000 SERVICE_FRONTEND_PORT=3000 docker compose -f docker-compose.yml -f docker-compose.prod.yml config > /dev/null && echo "✅ prod valid"

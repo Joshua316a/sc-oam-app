@@ -3,12 +3,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# Version from single source of truth: _version.py
+from _version import __version__
+
 # Create app instance
 app = FastAPI(
-    title="OAM API",
-    description="Org Asset Manager API — headless engine for crafting, blueprints, warehouse & hangar management",
-    version="0.1.0",
-    description="API separation layer for Org Asset Manager, replacing Tkinter UI with RESTful endpoints",
+    title="sc-oam-app",
+    version=__version__,
+    description="Org Asset Manager API — headless engine for crafting, blueprints, warehouse & hangar management, replacing Tkinter UI with RESTful endpoints",
 )
 
 # CORS configuration
@@ -20,15 +22,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Health check endpoint
+# 🎨 Branding: Health check endpoint
+# Returns app name, version, and status for CI/CD and monitoring integrations
 @app.get("/health", tags=["root"])
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "ok", "service": "OAM API", "version": "0.1.0"}
+    """Health check endpoint with branding information."""
+    return {
+        "status": "ok",
+        "service": "sc-oam-app",
+        "version": __version__,
+        "name": "sc-oam-app",
+    }
 
 # API routes will be included from api.routes
-# from api.routes import router
-# app.include_router(router, prefix="/api")
+from api.routes.blueprints import router
+app.include_router(router, prefix="/api")
+
+from api.routes.extraction import router as extraction_router
+app.include_router(extraction_router, prefix="/api")
 
 # ── Module imports (lazy) ─────────────────────────────────────────────
 # These are imported on-demand to avoid blocking startup
@@ -38,5 +49,9 @@ async def health_check():
 # from modules.blueprint_pool import import_blueprint_pools
 # from modules.log_analytics import GameLogStore
 # from modules.dc_missions_mixin import resolve_bp_display_name
+
+# ── API routes ─────────────────────────────────────────────────────────
+from api.routes.auth import router as auth_router
+app.include_router(auth_router, prefix="/api", tags=["auth"])
 
 print("✓ sc-oam-app FastAPI instance created")

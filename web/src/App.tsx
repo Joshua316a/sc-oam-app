@@ -1,9 +1,9 @@
 import { BrowserRouter } from 'react-router-dom'
 import { Dashboard } from './components/Dashboard'
-import { BlueprintsList } from './components/blueprint-list'
-import { CraftingCalculator } from './components/quality-calculator'
-import { FleetTable } from './components/fleet-table'
-import { InventoryTable } from './components/inventory-table'
+import { BlueprintsList } from './components/BlueprintList'
+import { CraftingCalculator } from './components/QualityCalculator'
+import { FleetTable } from './components/FleetTable'
+import { InventoryTable } from './components/InventoryTable'
 
 function App() {
   return (

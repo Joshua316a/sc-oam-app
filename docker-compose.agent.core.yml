@@ -1,0 +1,100 @@
+# ─── Agent: Core OAMv2 ────────────────────────────────────────────────────
+# Agent type: core
+# Role: Primary OAMv2 application backend
+# Used by: Development, QA, and Production profiles
+# This is the "heart" of the distributed system
+
+# ════════════════════════════════════════════════════════════════════════
+# 📝 Per-Agent Configuration
+# ════════════════════════════════════════════════════════════════════════
+
+# Agent identification (set via environment, not hardcoded)
+# In docker-compose.yml, these are set per-profile:
+#   - OAM_AGENT=core     (in dev/qa/prod compose files)
+#   - OAM_ROLE=primary   (primary OAMv2 instance)
+#   - DEPLOY_ENV=dev|qa|prod (current deployment environment)
+
+# ════════════════════════════════════════════════════════════════════════
+# 🐍 Core Backend Service
+# ════════════════════════════════════════════════════════════════════════
+
+services:
+  backend:
+    # Note: Service definition is inherited from profile (dev/qa/prod)
+    # This file provides the agent-specific overrides and defaults
+    
+    # Agent-specific environment overrides
+    environment:
+      # Core OAMv2 specific
+      - OAM_AGENT=core
+      - OAM_ROLE=primary
+      - DEPLOY_ENV=${DEPLOY_ENV:-dev}
+      
+      # Database - configured per environment
+      # dev: SQLite host mount
+      # qa: PostgreSQL configured in qa compose
+      # prod: PostgreSQL internal
+      - DATABASE_URL=${DATABASE_URL:-"sqlite:///./database.db"}
+      
+      # Core OAMv2 features
+      - ENABLE_EXTRACTION_PIPELINE=true
+      - ENABLE_CRAFTING_CALCULATOR=true
+      - ENABLE_WAREHOUSE_MANAGEMENT=true
+      - ENABLE_HANGAR_TRACKING=true
+    
+    # Ports are profile-dependent
+    # dev: 8000:8000 with --reload
+    # qa: 8001:8000 static
+    # prod: internal only (behind reverse proxy)
+    
+    # Networks - shared across all profiles
+    networks:
+      - oam-net
+    
+    # Health check (profile-specific overrides possible)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ════════════════════════════════════════════════════════════════════════
+# 📊 Core Agent - Profile Override Summary
+# ═════════════════════════════════════════════════════════════════════════
+
+# How this agent integrates with each profile:
+
+# **dev profile** (docker-compose.dev.yml):
+#   - Service: backend
+#   - Entry: /app/dev_entrypoint.sh
+#   - Command: uvicorn --reload --host 0.0.0.0 --port 8000
+#   - Volumes: ./:/app:ro (source mount), ./db:/host_db
+#   - Ports: 8000:8000
+#   - DB: SQLite via host mount
+#   - Reload: ✅ Enabled
+#   - Container: sc-oam-dev-backend-1
+
+# **qa profile** (docker-compose.qa.yml):
+#   - Service: backend
+#   - Entry: /app/prod_entrypoint.sh
+#   - Command: uvicorn --host 0.0.0.0 --port 8000 (no --reload)
+#   - Volumes: production_db only (no source mounts)
+#   - Ports: 8001:8000 (different from dev!)
+#   - DB: PostgreSQL (sc_oam_qa database)
+#   - Reload: ❌ Disabled
+#   - Container: sc-oam-qa-backend-1
+
+# **prod profile** (docker-compose.prod.yml):
+#   - Service: backend
+#   - Entry: /app/prod_entrypoint.sh
+#   - Command: uvicorn --host 0.0.0.0 --port 8000 (no --reload)
+#   - Volumes: production_db only (completely self-contained)
+#   - Ports: internal only (no host port mapping by default)
+#   - DB: PostgreSQL internal (sc_oam_prod)
+#   - Reload: ❌ Disabled
+#   - Container: sc-oam-prod-backend-1
+
+# Usage:
+#   ./run.sh dev core      # Development with source mounts and reload
+#   ./run.sh qa core       # QA testing built artifacts
+#   ./run.sh prod core     # Production self-contained deployment

@@ -1,0 +1,128 @@
+# ─── Production Profile ────────────────────────────────────────────────────
+# Profile: prod
+# Purpose: Production deployment - self-contained, no external dependencies
+# Features: No source mounts, PostgreSQL internal, full health checks
+# Container prefix: sc-oam-prod- (isolated from dev/qa)
+# Ports: set via SERVICE_BASE_PORT and SERVICE_FRONTEND_PORT env vars
+#   from run.sh (default: 8000/3000; prod offsets: +0 => 8000/3000)
+
+# ════════════════════════════════════════════════════════════════════════
+# 🌐 Base Port Configuration (inherited from shell environment)
+# ════════════════════════════════════════════════════════════════════════
+# This profile uses:
+#   SERVICE_BASE_PORT + 0  for backend (prod_offset = 0)  →  default: 8000
+#   SERVICE_FRONTEND_PORT + 0  for frontend (prod_offset = 0)  →  default: 3000
+#   - Backend is internal by default; uncomment ports section to expose
+#   - Change SERVICE_BASE_PORT/SERVICE_FRONTEND_PORT in run.sh to shift
+
+# ════════════════════════════════════════════════════════════════════════
+# 🐍 Backend Service (Production Core Agent)
+# ═════════════════════════════════════════════════════════════════════════
+
+services:
+  backend:
+    # Environment from .env file
+    env_file: .env
+    restart: unless-stopped
+    build: .
+    
+    # Production entrypoint - fully self-contained
+    entrypoint: /app/prod_entrypoint.sh
+    
+    # uvicorn with production worker class
+    # Uses SERVICE_BASE_PORT set by run.sh
+    command: ["--host", "0.0.0.0", "--port", "${SERVICE_BASE_PORT}"]
+    
+    # absolutely NO source code mounts - everything inside image
+    # Only data volumes for persistence
+    volumes:
+      - production_db:/var/lib/app/data  # PostgreSQL data volume
+    
+    # Internal port only - not exposed by default
+    # Uncomment the following lines to expose on SERVICE_BASE_PORT:
+    # ports:
+    #   - "${SERVICE_BASE_PORT}:8000"  # Exposes SERVICE_BASE_PORT on host → 8000 in container
+    #   # In production, typically behind reverse proxy on port 443
+    
+    # Production agent identification
+    environment:
+      - OAM_AGENT=core
+      - OAM_ROLE=primary
+      - DEPLOY_ENV=prod
+      - DATABASE_URL: "postgresql://app_user:app_pass@db:5432/sc_oam_prod"
+      - SECRET_KEY: "${PROD_SECRET_KEY}"  # From secrets manager
+      - DEBUG: "false"
+    
+    networks:
+      - oam-net
+    
+    # Comprehensive production health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 45s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    
+    # Restart policy for production
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════════
+  # 🗃️ Production Database
+  # ════════════════════════════════════════════════════════════════════════
+
+  db:
+    image: postgres:15-alpine
+    
+    # Production PostgreSQL with persistent data
+    env_file: .env
+    
+    # Data volume - persists across restarts
+    volumes:
+      - production_db:/var/lib/postgresql/data
+    
+    networks:
+      - oam-net
+    
+    aliases:
+      - prod-db
+      - sc-oam-prod-db
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # 🔒 Reverse Proxy (Optional - Nginx Traefik)
+  # ════════════════════════════════════════════════════════════════════════
+
+  # Uncomment for production with external access
+  # proxy:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "443:443"  # HTTPS access
+  #   volumes:
+  #     - ./nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
+  #   networks:
+  #     - oam-net
+
+# ═════════════════════════════════════════════════════════════════════════
+# 📋 Production-Specific Notes
+# ══════════════════════════════════════════════════════════════════════════
+
+# Port configuration for prod profile:
+#   - Backend API:  ${SERVICE_BASE_PORT}  (set by run.sh, default: 8000 for prod)
+#     - Internal by default; uncomment `ports: - "${SERVICE_BASE_PORT}:8000"` to expose on host
+#     - Or expose via reverse proxy on port 443 (see proxy service above)
+#   - Frontend:   ${SERVICE_FRONTEND_PORT}  (set by run.sh, default: 3000 for prod)
+#     - Typically served by external reverse proxy on port 443 alongside backend
+#   - run.sh defaults:  SERVICE_BASE_PORT=8000, SERVICE_FRONTEND_PORT=3000
+#   - Override with:  ./run.sh prod core --base-port 9000 --frontend-port 3003
+#   - Change SERVICE_BASE_PORT and SERVICE_FRONTEND_PORT in run.sh to shift port numbers
+#   - Production deployment pattern:
+#     1. Set SERVICE_BASE_PORT and SERVICE_FRONTEND_PORT in run.sh
+#     2. Configure reverse proxy (proxy service above) with SSL/TLS
+#     3. Run: docker compose -f docker-compose.prod.yml up -d
+#     4. Access: https://your-domain.com (routes to backend on ${SERVICE_BASE_PORT})
+
+# QA → Production Promotion Path:
+# QA artifacts (built dist) → become basis for prod image
+# PostgreSQL data migrated from QA to prod
+# Environment variables promoted from .env → Docker secrets
+# Base port configuration carried forward from QA to prod deployment

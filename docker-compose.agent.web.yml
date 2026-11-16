@@ -1,0 +1,122 @@
+# ─── Agent: Web UI ────────────────────────────────────────────────────────
+# Agent type: web
+# Role: Frontend UI agent
+# Description: React + Vite web interface for OAMv2
+# Responsibilities: Provide web interface, connect to backend via API
+
+# ════════════════════════════════════════════════════════════════════════
+# 📝 Per-Agent Configuration
+# ════════════════════════════════════════════════════════════════════════
+
+# Agent identification:
+#   - OAM_AGENT=web
+#   - OAM_ROLE=frontend
+#   - DEPLOY_ENV=dev|qa|prod
+
+# ════════════════════════════════════════════════════════════════════════
+# 🌐 Web UI Service
+# ════════════════════════════════════════════════════════════════════════
+
+services:
+  webui:
+    <<: *common-env
+    
+    # QA profile uses nginx with built dist
+    # Dev/profile profiles use Node.js + Vite in Docker
+    image: node:20-alpine
+    working_dir: /app
+    
+    # Agent identification
+    environment:
+      - OAM_AGENT=web
+      - OAM_ROLE=frontend
+      - DEPLOY_ENV=${DEPLOY_ENV:-dev}
+      - VITE_API_BASE: "${VITE_API_BASE:-http://backend:8000}"
+    
+    # Volume: host source mounted read-only (dev) or nothing (qa/prod)
+    volumes:
+      - ./web:/app:ro  # ← Host web source (dev only), read-only
+      - node_modules:/app/node_modules:cached  # ← Persistent cache
+    
+    # Polling for Docker volume consistency
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPOLL=true
+    
+    # Port mapping - profile-dependent
+    # dev: 3000:3000 (Vite dev server)
+    # qa: 3001:80 (Nginx serving built dist)
+    # prod: internal only (443 via reverse proxy)
+    ports:
+      - "${WEB_PORT:-3000}:3000"  # Configurable, defaults to 3000
+    
+    # Dev command: npm install + npm run dev
+    # In production/qa, this would be replaced with a static serve
+    command: sh -c "npm install && npm run dev"
+    
+    # Networks - connects to oam-net to reach backend
+    networks:
+      - oam-net
+    
+    # Health check - verify can reach backend API
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://backend:8000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# ════════════════════════════════════════════════════════════════════════
+# 📊 Web Agent - Profile Integration
+# ════════════════════════════════════════════════════════════════════════
+
+# How the web UI agent works with each profile:
+
+# **dev profile** (docker-compose.dev.yml):
+#   - Service: webui
+#   - Image: node:20-alpine (built on the fly)
+#   - Entry: (inherited, not used - command runs instead)
+#   - Command: sh -c "npm install && npm run dev"
+#   - Volumes: ./web:/app:ro (host source, read-only) + node_modules cache
+#   - Ports: 3000:3000 (Vite dev server with HMR)
+#   - Environment: CHOKIDAR_USEPOLLING=true for Docker consistency
+#   - VITE_API_BASE: http://backend:8000 (Docker network DNS)
+#   - Hot-Reload: ✅ Vite HMR - instant TSX/HTML/CSS updates
+#   - Container: sc-oam-dev-webui-1
+#   - Network: oam-net (reaches backend via DNS: backend)
+
+# **qa profile** (docker-compose.qa.yml):
+#   - Service: frontend (nginx)
+#   - Image: nginx:alpine
+#   - Command: serves built dist
+#   - Volumes: ./web/dist:/usr/share/nginx/html:ro (built artifacts)
+#   - Ports: 3001:80 (separate from dev's 3000)
+#   - VITE_API_BASE: http://localhost:8001/api
+#   - Hot-Reload: ❌ None (stable tested build)
+#   - Container: sc-oam-qa-frontend-1 (or sc-oam-qa-webui-1)
+
+# **prod profile** (docker-compose.prod.yml):
+#   - Service: proxy (nginx reverse proxy) - optional
+#   - Or: standalone static hosting
+#   - No Docker compose service by default (deploy separately)
+#   - Access via: HTTPS reverse proxy on port 443
+#   - Frontend assets: baked into deployment image
+
+# **Vite HMR in Docker (dev profile only):**
+#   The frontend runs inside a Docker container, but:
+   # - Host ./web/ directory is mounted via :ro volume
+   # - Vite development server runs inside container
+   # - Vite HMR works because changes to mounted files trigger container reload
+   # - CHOKIDAR_USEPOLLING=true ensures file events fire in Docker environment
+   # - Browser (host) connects to container port 3000
+   # - Experience: edit host file → save → Vite detects → browser updates (3-5s delay)
+
+# Usage:
+#   # Start core + web UI in development
+#   ./run.sh dev core         # Backend
+#   # webui starts automatically in same docker compose
+#   
+#   # Access at:
+#   # - Frontend: http://localhost:3000
+#   # - API:        http://localhost:8000/api
+#   # - Docs:       http://localhost:8000/docs

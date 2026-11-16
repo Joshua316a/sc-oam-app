@@ -1,0 +1,30 @@
+# ─── Base docker-compose.yml ──────────────────────────────────────────────
+# Common configuration: networks and volumes only
+# Profile-specific files (dev/qa/prod) define services independently
+# but use the same network names and volume names for consistency
+# Base port variables (SERVICE_BASE_PORT, SERVICE_FRONTEND_PORT) are expected
+# to be exported from the shell environment (e.g., via run.sh) before invoking
+# docker compose, as the profile compose files reference them directly.
+
+# ═════════════════════════════════════════════════════════════════════════
+# 🌐 Networks
+# ═════════════════════════════════════════════════════════════════════════
+
+networks:
+  oam-net:
+    driver: bridge
+
+# ═════════════════════════════════════════════════════════════════════════
+# 📦 Volumes
+# ═════════════════════════════════════════════════════════════════════════
+
+volumes:
+  db_data:
+    # Used for SQLite host persistence (dev profile)
+    # In qa/prod: managed internally by respective db services
+  node_modules:
+    # Node.js modules cache
+    # Persists across container restarts
+  production_db:
+    # Used by qa and prod profiles for PostgreSQL data persistence
+    # Host-managed in dev, internal in qa/prod containers
