@@ -130,22 +130,95 @@ npm run dev          # Visit: http://127.0.0.1:3000
 
  sc-oam-app can be run as a single Docker container bundling the FastAPI backend, React frontend, and SQLite database. 
 
-**Quick Start with Docker:**
+**Quick Start with Docker (profiles):**  
+_Run via `run.sh` with profile selection. Three profiles are available, each with different port offsets and source mount behavior._
+
+### **Three Profiles (via `run.sh`)**
+
+| **Profile** | **Command** | **Ports (default)** | **Source Mounts** | **Purpose** |
+|-----------|-----------|-------------------|------------------|------------|
+| **dev** | `./run.sh dev core` | 8001 / 3001 | ✅ `./:/app:ro` (editable) | Local development with auto-reload |
+| **qa** | `./run.sh qa core` | 8002 / 3002 | ❌ None (built artifacts) | QA testing of released version |
+| **prod** | `./run.sh prod core` | 8000 / 3000 | ❌ None (self-contained) | Production self-contained deployment |
+
+**Port Scheme:**  
+Change one variable to shift all profiles simultaneously:  
+`./run.sh dev core --base-port 9000` → dev: backend 9001, frontend 3001  
+`./run.sh qa core --base-port 9000` → qa: backend 9002, frontend 3002  
+`./run.sh prod core --base-port 9000` → prod: backend 8000 (internal), frontend 3000
+
+**Launch Examples:**
 ```bash
-# 1. Customize .env
+# Development (default ports 8001/3001)
+./run.sh dev core
+
+# QA testing (default ports 8002/3002)  
+./run.sh qa core
+
+# Production (backend internal on 8000, frontend on 3000)
+./run.sh prod core
+
+# Custom base port (shifts all profiles)
+./run.sh dev core --base-port 9000 --frontend-port 3003
+```
+
+### **1. Quick Start (Local Development)**
+
+```bash
+# 1. Clone & enter project
+git clone https://github.com/your-org/sc-oam-app.git
+cd sc-oam-app
+
+# 2. Backend setup
+python -m venv .venv
+source .venv/bin/activate          # Linux/macOS
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# 3. Environment config
 cp .env.example .env
-# Edit .env (DATABASE_URL, SECRET_KEY, etc.)
+# Edit .env if needed (DATABASE_URL, SECRET_KEY, etc.)
 
-# 2. Launch via Docker
-./run.sh
+# 4. Launch development environment
+./run.sh dev core                  # Visiting http://127.0.0.1:8001 (API) and http://127.0.0.1:3001 (UI)
 
-# 3. Access the app
-#   - FastAPI docs: http://localhost:8000/docs
-#   - React dev server: http://localhost:3000
+# 5. Run tests
+python -m pytest tests/api/test_blueprints.py  # 5/5 tests pass
 
-#  • Data persists in ./db/ folder on this host
+# 6. Access API docs
+#   - FastAPI: http://127.0.0.1:8001/docs
+#   - React: http://127.0.0.1:3001
+```
 
-### Extraction Pipeline (Data.p4k → Reference DB)
+### **2. QA Validation**
+
+```bash
+# Run full QA profile verification
+./run.sh qa core
+
+# Verify all profiles work simultaneously:
+# (open separate terminals)
+./run.sh dev core &   # API on 8001, UI on 3001
+./run.sh qa core      # API on 8002, UI on 3002
+```
+
+### **3. Versioning Scheme**
+
+This project uses a **QA-governed** versioning scheme:
+
+```
+1st number (major) — QA-GATED: Increments only at QA-validated releases
+2nd number (minor) — Feature work between QA: Accumulated since last QA
+3rd number (patch) — Hotfixes between QA: Tracked in git, grouped under next QA release
+```
+
+*Example release progression: v0.1.0 → (feature development) → v0.2.0 → (patches hotfixes) → v0.2.1 (grouped under next QA cycle)*
+
+*Full version details in `CHANGE-LOG.md` and `CHANGE-LOG-v0.1.md`*
+
+### **4. License**
+
+MIT License - see LICENSE for details.
 
 sc-oam-app provides an extraction pipeline to migrate legacy Tkinter OAM game data (`.p4k` archives) into reference SQLite databases.
 
